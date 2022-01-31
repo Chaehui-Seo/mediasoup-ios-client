@@ -35,7 +35,22 @@
 -(Producer *)produce:(id<ProducerListener>)listener track:(RTCMediaStreamTrack *)track encodings:(NSArray *)encodings codecOptions:(NSString *)codecOptions appData:(NSString *)appData {
     NSUInteger nativeTrack = track.hash;
     
-    Producer *producer = [TransportWrapper nativeProduce:self._nativeTransport listener:listener track:nativeTrack encodings:encodings codecOptions:codecOptions appData:appData];
+    [self checkTransportExists];
+    
+    __block Producer *producer;
+    // The below MUST run on the same thread, otherwise it leads to a race problem
+    // when called at the same time on a different thread (sdp answer is produced with both video and audio being mid:0)
+    dispatch_queue_t main = dispatch_get_main_queue();
+    dispatch_block_t block = ^{
+        producer = [TransportWrapper nativeProduce:self._nativeTransport listener:listener track:nativeTrack encodings:encodings codecOptions:codecOptions appData:appData];
+    };
+    
+    // Prevent deadlock if already on the main thread
+    if ([NSThread isMainThread]) {
+        block();
+    } else {
+        dispatch_sync(main, block);
+    }
     
     return producer;
 }
